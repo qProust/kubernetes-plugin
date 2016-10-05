@@ -20,6 +20,7 @@ import java.util.stream.Collectors;
 
 import javax.annotation.CheckForNull;
 
+import io.fabric8.kubernetes.api.model.*;
 import org.apache.commons.lang.StringUtils;
 import org.kohsuke.stapler.DataBoundConstructor;
 import org.kohsuke.stapler.DataBoundSetter;
@@ -50,18 +51,6 @@ import hudson.slaves.Cloud;
 import hudson.slaves.NodeProvisioner;
 import hudson.util.FormValidation;
 import hudson.util.ListBoxModel;
-import io.fabric8.kubernetes.api.model.Container;
-import io.fabric8.kubernetes.api.model.ContainerBuilder;
-import io.fabric8.kubernetes.api.model.ContainerStatus;
-import io.fabric8.kubernetes.api.model.EnvVar;
-import io.fabric8.kubernetes.api.model.LocalObjectReference;
-import io.fabric8.kubernetes.api.model.Pod;
-import io.fabric8.kubernetes.api.model.PodBuilder;
-import io.fabric8.kubernetes.api.model.PodList;
-import io.fabric8.kubernetes.api.model.Quantity;
-import io.fabric8.kubernetes.api.model.Volume;
-import io.fabric8.kubernetes.api.model.VolumeBuilder;
-import io.fabric8.kubernetes.api.model.VolumeMount;
 import io.fabric8.kubernetes.client.KubernetesClient;
 import jenkins.model.Jenkins;
 import jenkins.model.JenkinsLocationConfiguration;
@@ -266,13 +255,16 @@ public class KubernetesCloud extends Cloud {
                         .replaceAll(JNLPMAC_REF, slave.getComputer().getJnlpMac()) //
                         .replaceAll(NAME_REF, slave.getComputer().getName()));
 
-        return new ContainerBuilder()
+        ContainerBuilder builder = new ContainerBuilder()
                 .withName(containerTemplate.getName())
                 .withImage(containerTemplate.getImage())
-                .withImagePullPolicy(containerTemplate.isAlwaysPullImage() ? "Always" : "IfNotPresent")
-                .withNewSecurityContext()
-                    .withPrivileged(containerTemplate.isPrivileged())
-                .endSecurityContext()
+                .withImagePullPolicy(containerTemplate.isAlwaysPullImage() ? "Always" : "IfNotPresent");
+        ContainerFluent.SecurityContextNested<ContainerBuilder> ctx = builder.withNewSecurityContext();
+        if (containerTemplate.isPrivileged()) {
+            ctx.withPrivileged(true);
+            ctx.withRunAsUser(0L);
+        }
+        builder = ctx.endSecurityContext()
                 .withWorkingDir(containerTemplate.getWorkingDir())
                 .withVolumeMounts(volumeMounts)
                 .withEnv(env)
@@ -282,8 +274,8 @@ public class KubernetesCloud extends Cloud {
                 .withNewResources()
                     .withRequests(getResourcesMap(containerTemplate.getResourceRequestMemory(), containerTemplate.getResourceRequestCpu()))
                     .withLimits(getResourcesMap(containerTemplate.getResourceLimitMemory(), containerTemplate.getResourceLimitCpu()))
-                .endResources()
-                .build();
+                .endResources();
+        return builder.build();
     }
 
     private Pod getPodTemplate(KubernetesSlave slave, Label label) {
